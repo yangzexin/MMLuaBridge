@@ -12,19 +12,6 @@
 #import "lualib.h"
 #import "lauxlib.h"
 
-NSString *_StringByRestoringEscapedString(NSString *string);
-NSString *_StringByEscapingUnicode(NSString *string);
-
-NSString *MMLuaRecognizableString(NSString *string)
-{
-    return _StringByEscapingUnicode(string);
-}
-
-NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableString)
-{
-    return _StringByRestoringEscapedString(luaRecognizableString);
-}
-
 #pragma mark - MMLuaReturn
 @interface MMLuaReturn ()
 
@@ -90,7 +77,7 @@ NSString *luaStringParam(lua_State *L, int location)
     if(paramValue){
         paramString = [NSString stringWithFormat:@"%s", paramValue];
     }
-    paramString = _StringByRestoringEscapedString(paramString);
+    paramString = MMRestoreLuaRecognizableString(paramString);
     if(paramString.length == 0){
         paramString = @"";
     }
@@ -100,7 +87,7 @@ NSString *luaStringParam(lua_State *L, int location)
 
 void pushString(lua_State *L, NSString *returnValue)
 {
-    returnValue = _StringByEscapingUnicode(returnValue);
+    returnValue = MMLuaRecognizableString(returnValue);
     lua_pushstring(L, [returnValue UTF8String]);
 }
 
@@ -285,7 +272,9 @@ NSString *_RestoreUnichar(NSString *str)
     return [NSString stringWithCharacters:unichars length:1];
 }
 
-NSString *_StringByEscapingUnicode(NSString *string)
+
+
+NSString *MMLuaRecognizableString(NSString *string)
 {
     NSMutableString *allString = [NSMutableString string];
     for(NSInteger i = 0; i < string.length; i++){
@@ -301,34 +290,34 @@ NSString *_StringByEscapingUnicode(NSString *string)
     return allString;
 }
 
-NSString *_StringByRestoringEscapedString(NSString *string)
+NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableString)
 {
-    if(string.length == 0){
+    if(luaRecognizableString.length == 0){
         return @"";
     }
     NSMutableString *allString = [NSMutableString string];
     NSRange beginRange;
-    NSRange endRange = NSMakeRange(0, string.length);
+    NSRange endRange = NSMakeRange(0, luaRecognizableString.length);
     while(true){
-        beginRange = [string rangeOfString:@"[u]" options:NSCaseInsensitiveSearch range:endRange];
+        beginRange = [luaRecognizableString rangeOfString:@"[u]" options:NSCaseInsensitiveSearch range:endRange];
         if(beginRange.location == NSNotFound){
             if(endRange.location == 0){
-                [allString appendString:string];
-            }else if(endRange.location != string.length){
-                [allString appendString:[string substringFromIndex:endRange.location]];
+                [allString appendString:luaRecognizableString];
+            }else if(endRange.location != luaRecognizableString.length){
+                [allString appendString:[luaRecognizableString substringFromIndex:endRange.location]];
             }
             break;
         }
-        NSString *en = [string substringWithRange:NSMakeRange(endRange.location, beginRange.location - endRange.location)];
+        NSString *en = [luaRecognizableString substringWithRange:NSMakeRange(endRange.location, beginRange.location - endRange.location)];
         [allString appendString:en];
         beginRange.location += 3;
-        beginRange.length = string.length - beginRange.location;
-        endRange = [string rangeOfString:@"[/u]" options:NSCaseInsensitiveSearch range:beginRange];
-        NSString *cn = [string substringWithRange:NSMakeRange(beginRange.location, endRange.location - beginRange.location)];
+        beginRange.length = luaRecognizableString.length - beginRange.location;
+        endRange = [luaRecognizableString rangeOfString:@"[/u]" options:NSCaseInsensitiveSearch range:beginRange];
+        NSString *cn = [luaRecognizableString substringWithRange:NSMakeRange(beginRange.location, endRange.location - beginRange.location)];
         cn = _RestoreUnichar(cn);
         [allString appendString:cn];
         endRange.location += 4;
-        endRange.length = string.length - endRange.location;
+        endRange.length = luaRecognizableString.length - endRange.location;
     }
     
     return allString;
@@ -337,7 +326,7 @@ NSString *_StringByRestoringEscapedString(NSString *string)
 NSString *_FilterInputParameter(NSString *parameter)
 {
     if(_StringContainsChinese(parameter)){
-        parameter = _StringByEscapingUnicode(parameter);
+        parameter = MMLuaRecognizableString(parameter);
     }
     
     return parameter;
@@ -345,7 +334,7 @@ NSString *_FilterInputParameter(NSString *parameter)
 
 NSString *_RestoreOutputValue(NSString *returnValue)
 {
-    return _StringByRestoringEscapedString(returnValue);
+    return MMRestoreLuaRecognizableString(returnValue);
 }
 
 void _PushFunctionToLua(lua_State *L, char *functionName, int (*func)(lua_State *L))
