@@ -51,6 +51,11 @@ NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableString)
     return ret;
 }
 
+- (NSString *)description
+{
+    return self.error == nil ? self.value : self.error;
+}
+
 @end
 
 BOOL _SingleCharIsChinese(NSString *str)
