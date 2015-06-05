@@ -170,6 +170,15 @@ int ustring_replace(lua_State *L)
     return 1;
 }
 
+int sys_log(lua_State *L)
+{
+    NSString *string = luaStringParam(L, 1);
+    
+    NSLog(@"%@", string);
+    
+    return 0;
+}
+
 
 #pragma mark - Interaction Utils
 static char *CustomHexList = "0123456789abcdef";
@@ -353,6 +362,8 @@ void _AttachCFunctions(lua_State *L)
     _PushFunctionToLua(L, "ustr_sub", ustring_substring);// ustr_substr(begin_index, end_index)
     _PushFunctionToLua(L, "ustr_encode", ustring_encodeURL);// ustr_encodeURL(str)
     _PushFunctionToLua(L, "ustr_rep", ustring_replace);// ustr_replace(str, target_str, replacement_str)
+    
+    _PushFunctionToLua(L, "log", sys_log);
 }
 
 #pragma mark - MMLuaBridge
