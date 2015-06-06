@@ -382,6 +382,7 @@ void _AttachCFunctions(lua_State *L)
 {
     self = [super init];
     
+    scripts = MMLuaRecognizableString(scripts);
     NSAssert(scripts.length != 0, @"Scripts cannot be NULL");
     _script = malloc(sizeof(char *) * (scripts.length + 1));
     strcpy(_script, [scripts UTF8String]);
