@@ -18,10 +18,21 @@ OBJC_EXPORT NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableSt
 
 @end
 
+@protocol MMLuaModuleSupport <NSObject>
+
+@optional
+- (NSString *)scriptForModuleName:(NSString *)moduleName;
+
+@end
+
 @interface MMLuaRunner : NSObject
+
++ (void)setSharedModuleSupport:(id<MMLuaModuleSupport>)moduleSupport;
++ (id<MMLuaModuleSupport>)sharedModuleSupport;
 
 - (id)initWithScripts:(NSString *)scripts;
 
 - (MMLuaReturn *)runFunction:(NSString *)name parameters:(NSString *)firstParameter, ... NS_REQUIRES_NIL_TERMINATION;
+- (MMLuaReturn *)runFunction:(NSString *)name parameterArray:(NSArray *)parameterArray;
 
 @end

@@ -45,6 +45,64 @@
 
 @end
 
+@interface _MMLuaRunnerModuleSupportFromMainBundle : NSObject <MMLuaModuleSupport>
+
+@end
+
+@implementation _MMLuaRunnerModuleSupportFromMainBundle
+
+- (NSString *)scriptForModuleName:(NSString *)moduleName
+{
+    return [NSString stringWithContentsOfFile:[[NSBundle mainBundle] pathForResource:moduleName ofType:@"lua"] encoding:NSUTF8StringEncoding error:nil];
+}
+
+@end
+
+@interface MMLuaRunnerConfiguration : NSObject
+
+@property (nonatomic, strong) id<MMLuaModuleSupport> moduleSupport;
+
+@property (nonatomic, strong) NSMutableDictionary *keyModuleNameValueScript;
+
++ (instancetype)sharedConfiguration;
+
+@end
+
+@implementation MMLuaRunnerConfiguration
+
++ (instancetype)sharedConfiguration
+{
+    static id instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [self new];
+    });
+    
+    return instance;
+}
+
+- (id)init
+{
+    self = [super init];
+    
+    self.keyModuleNameValueScript = [NSMutableDictionary dictionary];
+    self.moduleSupport = [_MMLuaRunnerModuleSupportFromMainBundle new];
+    
+    return self;
+}
+
+- (NSString *)cachedModuleWithName:(NSString *)moduleName
+{
+    return [self.keyModuleNameValueScript objectForKey:moduleName];
+}
+
+- (void)setModuleCacheWithName:(NSString *)moduleName script:(NSString *)script
+{
+    [self.keyModuleNameValueScript setObject:script forKey:moduleName];
+}
+
+@end
+
 BOOL _SingleCharIsChinese(NSString *str)
 {
     int firstChar = [str characterAtIndex:0];
@@ -355,6 +413,37 @@ void _AttachCFunctions(lua_State *L)
     _PushFunctionToLua(L, "log", sys_log);
 }
 
+int _RequireModuleSupport(lua_State *L)
+{
+    const char *cmoduleName = luaL_checkstring(L, 1);
+    
+    if(strlen(cmoduleName) != 0){
+        NSString *moduleName = [NSString stringWithCString:cmoduleName encoding:NSASCIIStringEncoding];
+        
+        NSString *targetScript = [[MMLuaRunnerConfiguration sharedConfiguration] cachedModuleWithName:moduleName];
+        if (targetScript == nil) {
+            id<MMLuaModuleSupport> moduleSupport = [[MMLuaRunnerConfiguration sharedConfiguration] moduleSupport];
+            if (moduleSupport) {
+                targetScript = [moduleSupport scriptForModuleName:moduleName];
+                if (targetScript) {
+                    targetScript = MMLuaRecognizableString(targetScript);
+                    [[MMLuaRunnerConfiguration sharedConfiguration] setModuleCacheWithName:moduleName script:targetScript];
+                }
+            } else {
+                NSLog(@"%@", [NSString stringWithFormat:@"%@ can't find module support for module:%s"
+                              , NSStringFromClass([MMLuaRunner class]), cmoduleName]);
+            }
+        }
+        
+        if(targetScript.length != 0){
+            const char *cscript = [targetScript UTF8String];
+            luaL_loadbuffer(L, cscript, [targetScript length], cmoduleName);
+        }
+    }
+    
+    return 1;
+}
+
 #pragma mark - MMLuaBridge
 @interface MMLuaRunner () {
     char *_script;
@@ -376,7 +465,15 @@ void _AttachCFunctions(lua_State *L)
     }
 }
 
++ (void)setSharedModuleSupport:(id<MMLuaModuleSupport>)moduleSupport
+{
+    [[MMLuaRunnerConfiguration sharedConfiguration] setModuleSupport:moduleSupport];
+}
 
++ (id<MMLuaModuleSupport>)sharedModuleSupport
+{
+    return [[MMLuaRunnerConfiguration sharedConfiguration] moduleSupport];
+}
 
 - (id)initWithScripts:(NSString *)scripts
 {
@@ -400,6 +497,9 @@ void _AttachCFunctions(lua_State *L)
     _lua_state = lua_open();
     luaL_openlibs(_lua_state);
     
+    lua_register(_lua_state, "require_module_support", _RequireModuleSupport);
+    luaL_dostring(_lua_state, "table.insert(package.loaders, require_module_support)");
+    
     if(luaL_dostring(_lua_state, _script)){
         // dostring error, lua cannot do this script
         const char *error = lua_tostring(_lua_state, -1);
@@ -420,6 +520,11 @@ void _AttachCFunctions(lua_State *L)
     }
     
     return _CallLua(_lua_state, _script, name, parameters);
+}
+
+- (MMLuaReturn *)runFunction:(NSString *)name parameterArray:(NSArray *)parameterArray
+{
+    return _CallLua(_lua_state, _script, name, parameterArray);
 }
 
 MMLuaReturn *_CallLua(lua_State *lua_state, char *scripts, NSString *luaFuncName, NSArray *params)
