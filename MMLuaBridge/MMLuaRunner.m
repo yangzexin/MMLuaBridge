@@ -410,7 +410,7 @@ void _AttachCFunctions(lua_State *L)
     _PushFunctionToLua(L, "ustr_encode", ustring_encodeURL);// ustr_encodeURL(str)
     _PushFunctionToLua(L, "ustr_rep", ustring_replace);// ustr_replace(str, target_str, replacement_str)
     
-    _PushFunctionToLua(L, "log", sys_log);
+    _PushFunctionToLua(L, "print", sys_log);
 }
 
 int _RequireModuleSupport(lua_State *L)
