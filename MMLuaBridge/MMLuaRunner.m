@@ -621,7 +621,7 @@ void _AttachCFunctions(lua_State *L)
     _PushFunctionToLua(L, "StringEncodeURL", ustring_encodeURL);// ustr_encodeURL(str)
     _PushFunctionToLua(L, "StringReplace", ustring_replace);// ustr_replace(str, target_str, replacement_str)
     
-//    _PushFunctionToLua(L, "print", sys_log);
+    _PushFunctionToLua(L, "print", sys_log);
     _PushFunctionToLua(L, "AsyncServiceCallback", async_service_callback);
     _PushFunctionToLua(L, "AsyncServiceApply", async_service_apply);
     _PushFunctionToLua(L, "AsyncServiceCancel", async_service_cancel);
