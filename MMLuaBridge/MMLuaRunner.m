@@ -852,7 +852,10 @@ int _RequireModuleSupport(lua_State *L)
                                    completion:(void(^)(MMLuaReturn *ret))completion
 {
     NSString *callbackId = [[MMLuaAsyncServiceSupport sharedSupport] addRequestServiceCompletion:completion];
-    NSString *json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:parameters options:0 error:nil] encoding:NSUTF8StringEncoding];
+    NSString *json = @"";
+    if (parameters) {
+        json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:parameters options:0 error:nil] encoding:NSUTF8StringEncoding];
+    }
     _CallLuaFunction(_lua_state, _script, @"asyncservice_apply", @[service, callbackId, json]);
     
     return ({
