@@ -25,6 +25,32 @@ OBJC_EXPORT NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableSt
 
 @end
 
+@interface MMLuaRunnerServiceRequest : NSObject
+
+@property (nonatomic, copy, readonly) NSString *name;
+@property (nonatomic, copy, readonly) NSString *parameters;
+
+@end
+
+@interface MMLuaRunnerServiceResponse : NSObject
+
+- (void)sendFeedbackWithValue:(NSString *)value error:(NSString *)error;
+
+@end
+
+@protocol MMLuaRunnerLocalServiceHandler <NSObject>
+
+- (void)handleWithRequest:(MMLuaRunnerServiceRequest *)request response:(MMLuaRunnerServiceResponse *)response;
+- (void)cancel;
+
+@end
+
+@interface MMLuaRunnerServiceControl : NSObject
+
+- (void)cancel;
+
+@end
+
 @interface MMLuaRunner : NSObject
 
 + (void)setSharedModuleSupport:(id<MMLuaModuleSupport>)moduleSupport;
@@ -32,7 +58,14 @@ OBJC_EXPORT NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableSt
 
 - (id)initWithScripts:(NSString *)scripts;
 
-- (MMLuaReturn *)runFunction:(NSString *)name parameters:(NSString *)firstParameter, ... NS_REQUIRES_NIL_TERMINATION;
-- (MMLuaReturn *)runFunction:(NSString *)name parameterArray:(NSArray *)parameterArray;
+- (MMLuaReturn *)callFunctionWithName:(NSString *)name parameters:(NSArray *)parameters;
+
+- (MMLuaRunnerServiceControl *)requestService:(NSString *)service
+                                   parameters:(NSDictionary *)parameters
+                                   completion:(void(^)(MMLuaReturn *ret))completion;
+
+- (void)registerLocalService:(NSString *)service handlerBuilder:(id<MMLuaRunnerLocalServiceHandler>(^)())handlerBuilder;
+
+- (void)unregisterLocalService:(NSString *)service;
 
 @end

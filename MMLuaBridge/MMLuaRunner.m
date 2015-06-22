@@ -12,6 +12,180 @@
 #import "lualib.h"
 #import "lauxlib.h"
 
+@interface MMLuaRunnerManager : NSObject
+
++ (instancetype)sharedManager;
+
+- (MMLuaRunner *)findRunnerByLuaState:(lua_State *)luaState;
+
+@end
+
+#pragma mark - MMLuaRunnerServiceRequest
+@interface MMLuaRunnerServiceRequest()
+
+@property (nonatomic, copy) NSString *name;
+@property (nonatomic, copy) NSString *parameters;
+
+@end
+
+@implementation MMLuaRunnerServiceRequest
+
+@end
+
+@interface MMLuaRunnerServiceResponse ()
+
+@property (nonatomic, copy) void(^whenSendFeedback)(NSString *, NSString *);
+
+@end
+
+@implementation MMLuaRunnerServiceResponse
+
+- (void)sendFeedbackWithValue:(NSString *)value error:(NSString *)error
+{
+    self.whenSendFeedback(value, error);
+}
+
+@end
+
+@interface MMBlockWrapper : NSObject
+
+@property (nonatomic, copy) id block;
+
+@end
+
+@implementation MMBlockWrapper
+
+@end
+
+#pragma mark - MMLuaAsyncServiceSupport
+@interface MMLuaAsyncServiceSupport : NSObject
+
++ (instancetype)sharedSupport;
+
+@end
+
+@interface MMLuaAsyncServiceSupport ()
+
+@property (nonatomic, strong) NSMutableDictionary *keyCallbackIdValueComletionBlock;
+
+@property (nonatomic, strong) NSMutableDictionary *keyServiceNameValueHandlerBuilder;
+@property (nonatomic, strong) NSMutableDictionary *keyCallbackidValueHandlerInstance;
+
+@end
+
+@implementation MMLuaAsyncServiceSupport
+
++ (instancetype)sharedSupport
+{
+    static id instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [self new];
+    });
+    
+    return instance;
+}
+
+- (id)init
+{
+    self = [super init];
+    
+    self.keyCallbackIdValueComletionBlock = [NSMutableDictionary dictionary];
+    self.keyServiceNameValueHandlerBuilder = [NSMutableDictionary dictionary];
+    self.keyCallbackidValueHandlerInstance = [NSMutableDictionary dictionary];
+    
+    return self;
+}
+
+- (NSString *)addRequestServiceCompletion:(void(^)(MMLuaReturn *ret))completion
+{
+    NSString *callbackId = [NSString stringWithFormat:@"%f", [NSDate timeIntervalSinceReferenceDate]];
+    
+    [self.keyCallbackIdValueComletionBlock setObject:({
+        MMBlockWrapper *wrapper = [MMBlockWrapper new];
+        wrapper.block = completion;
+        
+        wrapper;
+    }) forKey:callbackId];
+    
+    return callbackId;
+}
+
+- (void(^)(MMLuaReturn *))requestServiceCompletionForCallbackId:(NSString *)callbackId
+{
+    MMBlockWrapper *wrapper = [self.keyCallbackIdValueComletionBlock objectForKey:callbackId];
+    
+    return wrapper.block;
+}
+
+- (void)removeRequestServiceCompletionWithCallbackId:(NSString *)callbackId
+{
+    [self.keyCallbackIdValueComletionBlock removeObjectForKey:callbackId];
+}
+
+- (void)registerLocalService:(NSString *)service handlerBuilder:(id<MMLuaRunnerLocalServiceHandler>(^)())handlerBuilder
+{
+    [self.keyServiceNameValueHandlerBuilder setObject:({
+        MMBlockWrapper *wrapper = [MMBlockWrapper new];
+        wrapper.block = handlerBuilder;
+        
+        wrapper;
+    }) forKey:service];
+}
+
+- (void)unregisterLocalService:(NSString *)service
+{
+    [self.keyServiceNameValueHandlerBuilder removeObjectForKey:service];
+}
+
+- (void)applyServiceWithLuaState:(lua_State *)luaState service:(NSString *)service callbackid:(NSString *)callbackid params:(NSString *)params
+{
+    MMBlockWrapper *wrapper = [self.keyServiceNameValueHandlerBuilder objectForKey:service];
+    if (wrapper) {
+        id<MMLuaRunnerLocalServiceHandler>(^handlerBuilder)() = wrapper.block;
+        id<MMLuaRunnerLocalServiceHandler> handler = handlerBuilder();
+        
+        MMLuaRunnerServiceRequest *request = [MMLuaRunnerServiceRequest new];
+        request.name = service;
+        request.parameters = params;
+        
+        MMLuaRunnerServiceResponse *response = [MMLuaRunnerServiceResponse new];
+        [response setWhenSendFeedback:^(NSString *value, NSString *error) {
+            id<MMLuaRunnerLocalServiceHandler> handler = [self.keyCallbackidValueHandlerInstance objectForKey:callbackid];
+            if (handler) {
+                MMLuaRunner *runner = [[MMLuaRunnerManager sharedManager] findRunnerByLuaState:luaState];
+                if (value == nil) {
+                    value = @"";
+                }
+                if (error == nil) {
+                    error= @"";
+                }
+                [runner callFunctionWithName:@"asyncservice_callback" parameters:@[callbackid, value, error]];
+                
+                [self.keyCallbackidValueHandlerInstance removeObjectForKey:callbackid];
+            }
+        }];
+        
+        [self.keyCallbackidValueHandlerInstance setObject:handler forKey:callbackid];
+        
+        [handler handleWithRequest:request response:response];
+    } else {
+        NSString *error = [NSString stringWithFormat:@"Unknown Objc service: %@", service];
+        NSLog(@"%@", error);
+        MMLuaRunner *runner = [[MMLuaRunnerManager sharedManager] findRunnerByLuaState:luaState];
+        [runner callFunctionWithName:@"asyncservice_callback" parameters:@[callbackid, @"", error]];
+    }
+}
+
+- (void)cancelServiceWithCallbackid:(NSString *)callbackid
+{
+    id<MMLuaRunnerLocalServiceHandler> handler = [self.keyCallbackidValueHandlerInstance objectForKey:callbackid];
+    [handler cancel];
+    [self.keyCallbackidValueHandlerInstance removeObjectForKey:callbackid];
+}
+
+@end
+
 #pragma mark - MMLuaReturn
 @interface MMLuaReturn ()
 
@@ -224,6 +398,43 @@ int sys_log(lua_State *L)
     return 0;
 }
 
+int async_service_callback(lua_State *L)
+{
+    NSString *callbackId = luaStringParam(L, 1);
+    NSString *value = luaStringParam(L, 2);
+    NSString *error = luaStringParam(L, 3);
+    
+    void(^completion)(MMLuaReturn *) = [[MMLuaAsyncServiceSupport sharedSupport] requestServiceCompletionForCallbackId:callbackId];
+    if (completion) {
+        if (error.length != 0) {
+            completion([MMLuaReturn returnWithError:error]);
+        } else {
+            completion([MMLuaReturn returnWithValue:value]);
+        }
+    }
+    [[MMLuaAsyncServiceSupport sharedSupport] removeRequestServiceCompletionWithCallbackId:callbackId];
+    
+    return 0;
+}
+
+int async_service_apply(lua_State *L)
+{
+    NSString *servicename = luaStringParam(L, 1);
+    NSString *callbackid = luaStringParam(L, 2);
+    NSString *params = luaStringParam(L, 3);
+    
+    [[MMLuaAsyncServiceSupport sharedSupport] applyServiceWithLuaState:L service:servicename callbackid:callbackid params:params];
+    
+    return 0;
+}
+
+int async_service_cancel(lua_State *L)
+{
+    NSString *callbackid = luaStringParam(L, 1);
+    [[MMLuaAsyncServiceSupport sharedSupport] cancelServiceWithCallbackid:callbackid];
+    
+    return 0;
+}
 
 #pragma mark - Interaction Utils
 static char *CustomHexList = "0123456789abcdef";
@@ -404,13 +615,16 @@ void _PushFunctionToLua(lua_State *L, char *functionName, int (*func)(lua_State 
 
 void _AttachCFunctions(lua_State *L)
 {
-    _PushFunctionToLua(L, "ustr_find", ustring_find); // ustr_find(from_str, target_str, begin_index, reverse)
-    _PushFunctionToLua(L, "ustr_len", ustring_length);// ustr_len(str)
-    _PushFunctionToLua(L, "ustr_sub", ustring_substring);// ustr_substr(begin_index, end_index)
-    _PushFunctionToLua(L, "ustr_encode", ustring_encodeURL);// ustr_encodeURL(str)
-    _PushFunctionToLua(L, "ustr_rep", ustring_replace);// ustr_replace(str, target_str, replacement_str)
+    _PushFunctionToLua(L, "StringFind", ustring_find); // ustr_find(from_str, target_str, begin_index, reverse)
+    _PushFunctionToLua(L, "StringLength", ustring_length);// ustr_len(str)
+    _PushFunctionToLua(L, "StringSubstring", ustring_substring);// ustr_substr(begin_index, end_index)
+    _PushFunctionToLua(L, "StringEncodeURL", ustring_encodeURL);// ustr_encodeURL(str)
+    _PushFunctionToLua(L, "StringReplace", ustring_replace);// ustr_replace(str, target_str, replacement_str)
     
-    _PushFunctionToLua(L, "print", sys_log);
+//    _PushFunctionToLua(L, "print", sys_log);
+    _PushFunctionToLua(L, "AsyncServiceCallback", async_service_callback);
+    _PushFunctionToLua(L, "AsyncServiceApply", async_service_apply);
+    _PushFunctionToLua(L, "AsyncServiceCancel", async_service_cancel);
 }
 
 int _RequireModuleSupport(lua_State *L)
@@ -444,10 +658,107 @@ int _RequireModuleSupport(lua_State *L)
     return 1;
 }
 
+#pragma mark - MMLuaRunnerServiceControl
+@interface MMLuaRunnerServiceControl ()
+
+@property (nonatomic, copy) void(^didCancel)();
+
+@end
+
+@implementation MMLuaRunnerServiceControl
+
+- (void)cancel
+{
+    if (self.didCancel) {
+        self.didCancel();
+//        dispatch_async(dispatch_get_main_queue(), ^{
+//            self.didCancel = nil;
+//        });
+    }
+}
+
+@end
+
 #pragma mark - MMLuaBridge
 @interface MMLuaRunner () {
     char *_script;
     lua_State *_lua_state;
+}
+
+- (lua_State *)luaState;
+
+@end
+
+@interface MMLuaRunnerWeakWrapper : NSObject
+
+@property (nonatomic, weak) id runner;
+
+@end
+
+@implementation MMLuaRunnerWeakWrapper
+
+@end
+
+@interface MMLuaRunnerManager ()
+
+@property (nonatomic, strong) NSMutableArray *runners;
+
+@end
+
+@implementation MMLuaRunnerManager
+
++ (instancetype)sharedManager
+{
+    static id instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [self new];
+    });
+    
+    return instance;
+}
+
+- (id)init
+{
+    self = [super init];
+    
+    self.runners = [NSMutableArray array];
+    
+    return self;
+}
+
+- (void)addRunner:(MMLuaRunner *)runner
+{
+    MMLuaRunnerWeakWrapper *wrapper = [MMLuaRunnerWeakWrapper new];
+    wrapper.runner = runner;
+    
+    [self.runners addObject:wrapper];
+}
+
+- (void)removeRunner:(MMLuaRunner *)runner
+{
+    NSArray *runners = [self.runners copy];
+    for (MMLuaRunnerWeakWrapper *wrapper in runners) {
+        if (wrapper.runner == runner) {
+            [self.runners removeObject:wrapper];
+            break;
+        }
+    }
+}
+
+- (MMLuaRunner *)findRunnerByLuaState:(lua_State *)luaState
+{
+    MMLuaRunner *runner = nil;
+    
+    NSArray *runners = [self.runners copy];
+    for (MMLuaRunnerWeakWrapper *wrapper in runners) {
+        if ([wrapper.runner luaState] == luaState) {
+            runner = wrapper.runner;
+            break;
+        }
+    }
+    
+    return runner;
 }
 
 @end
@@ -463,6 +774,13 @@ int _RequireModuleSupport(lua_State *L)
     if (_script) {
         free(_script);
     }
+    
+    [[MMLuaRunnerManager sharedManager] removeRunner:self];
+}
+
+- (lua_State *)luaState
+{
+    return _lua_state;
 }
 
 + (void)setSharedModuleSupport:(id<MMLuaModuleSupport>)moduleSupport
@@ -486,6 +804,8 @@ int _RequireModuleSupport(lua_State *L)
 
     [self _initLuaState];
     
+    [[MMLuaRunnerManager sharedManager] addRunner:self];
+    
     return self;
 }
 
@@ -507,7 +827,7 @@ int _RequireModuleSupport(lua_State *L)
     }
 }
 
-- (MMLuaReturn *)runFunction:(NSString *)name parameters:(NSString *)firstParameter, ... NS_REQUIRES_NIL_TERMINATION
+- (MMLuaReturn *)runFunction:(NSString *)name params:(NSString *)firstParameter, ... NS_REQUIRES_NIL_TERMINATION
 {
     va_list args;
     NSMutableArray *parameters = [NSMutableArray array];
@@ -519,15 +839,44 @@ int _RequireModuleSupport(lua_State *L)
         va_end(args);
     }
     
-    return _CallLua(_lua_state, _script, name, parameters);
+    return _CallLuaFunction(_lua_state, _script, name, parameters);
 }
 
-- (MMLuaReturn *)runFunction:(NSString *)name parameterArray:(NSArray *)parameterArray
+- (MMLuaReturn *)callFunctionWithName:(NSString *)name parameters:(NSArray *)parameters
 {
-    return _CallLua(_lua_state, _script, name, parameterArray);
+    return _CallLuaFunction(_lua_state, _script, name, parameters);
 }
 
-MMLuaReturn *_CallLua(lua_State *lua_state, char *scripts, NSString *luaFuncName, NSArray *params)
+- (MMLuaRunnerServiceControl *)requestService:(NSString *)service
+                                   parameters:(NSDictionary *)parameters
+                                   completion:(void(^)(MMLuaReturn *ret))completion
+{
+    NSString *callbackId = [[MMLuaAsyncServiceSupport sharedSupport] addRequestServiceCompletion:completion];
+    NSString *json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:parameters options:0 error:nil] encoding:NSUTF8StringEncoding];
+    _CallLuaFunction(_lua_state, _script, @"asyncservice_apply", @[service, callbackId, json]);
+    
+    return ({
+        MMLuaRunnerServiceControl *control = [MMLuaRunnerServiceControl new];
+        
+        [control setDidCancel:^{
+            _CallLuaFunction(_lua_state, _script, @"asyncservice_cancel", @[callbackId]);
+        }];
+        
+        control;
+    });
+}
+
+- (void)registerLocalService:(NSString *)service handlerBuilder:(id<MMLuaRunnerLocalServiceHandler>(^)())handlerBuilder
+{
+    [[MMLuaAsyncServiceSupport sharedSupport] registerLocalService:service handlerBuilder:handlerBuilder];
+}
+
+- (void)unregisterLocalService:(NSString *)service
+{
+    [[MMLuaAsyncServiceSupport sharedSupport] unregisterLocalService:service];
+}
+
+MMLuaReturn *_CallLuaFunction(lua_State *lua_state, char *scripts, NSString *luaFuncName, NSArray *params)
 {
     int errorHandler = 0;
 #ifdef DEBUG
