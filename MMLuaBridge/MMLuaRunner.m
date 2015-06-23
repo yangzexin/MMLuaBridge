@@ -162,7 +162,9 @@
                 }
                 [runner callFunctionWithName:@"asyncservice_callback" parameters:@[callbackid, value, error]];
                 
-                [self.keyCallbackidValueHandlerInstance removeObjectForKey:callbackid];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self.keyCallbackidValueHandlerInstance removeObjectForKey:callbackid];
+                });
             }
         }];
         
@@ -171,7 +173,9 @@
         [handler handleWithRequest:request response:response];
     } else {
         NSString *error = [NSString stringWithFormat:@"Unknown Objc service: %@", service];
+#ifdef DEBUG
         NSLog(@"%@", error);
+#endif
         MMLuaRunner *runner = [[MMLuaRunnerManager sharedManager] findRunnerByLuaState:luaState];
         [runner callFunctionWithName:@"asyncservice_callback" parameters:@[callbackid, @"", error]];
     }
@@ -927,7 +931,7 @@ MMLuaReturn *_CallLuaFunction(lua_State *lua_state, char *scripts, NSString *lua
         }
 #ifdef DEBUG
         errorMsg = [NSString stringWithFormat:@"%@\n%s", errorMsg, lua_tostring(lua_state, -1)];
-        NSLog(@"Error found by running function:<%@>, \nerror message:%@", luaFuncName, errorMsg);
+        NSLog(@"Error found by running function: <%@>, \nerror message:%@", luaFuncName, errorMsg);
 #else
         errorMsg = [NSString stringWithFormat:@"%@\n", errorMsg];
 #endif
