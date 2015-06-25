@@ -172,7 +172,7 @@
         
         [handler handleWithRequest:request response:response];
     } else {
-        NSString *error = [NSString stringWithFormat:@"Unknown Objc service: %@", service];
+        NSString *error = [NSString stringWithFormat:@"LUA ERROR: unknown Objc service: %@", service];
 #ifdef DEBUG
         NSLog(@"%@", error);
 #endif
@@ -648,8 +648,7 @@ int _RequireModuleSupport(lua_State *L)
                     [[MMLuaRunnerConfiguration sharedConfiguration] setModuleCacheWithName:moduleName script:targetScript];
                 }
             } else {
-                NSLog(@"%@", [NSString stringWithFormat:@"%@ can't find module support for module:%s"
-                              , NSStringFromClass([MMLuaRunner class]), cmoduleName]);
+                NSLog(@"%@", [NSString stringWithFormat:@"LUA ERROR: can't find module support for module:%s", cmoduleName]);
             }
         }
         
@@ -675,9 +674,6 @@ int _RequireModuleSupport(lua_State *L)
 {
     if (self.didCancel) {
         self.didCancel();
-//        dispatch_async(dispatch_get_main_queue(), ^{
-//            self.didCancel = nil;
-//        });
     }
 }
 
@@ -687,6 +683,7 @@ int _RequireModuleSupport(lua_State *L)
 @interface MMLuaRunner () {
     char *_script;
     lua_State *_lua_state;
+    NSLock *_luaLock;
 }
 
 - (lua_State *)luaState;
@@ -802,7 +799,7 @@ int _RequireModuleSupport(lua_State *L)
     self = [super init];
     
     scripts = MMLuaRecognizableString(scripts);
-    NSAssert(scripts.length != 0, @"Scripts cannot be NULL");
+    NSAssert(scripts.length != 0, @"LUA ERROR: scripts cannot be NULL");
     _script = malloc(sizeof(char *) * (scripts.length + 1));
     strcpy(_script, [scripts UTF8String]);
 
@@ -827,8 +824,10 @@ int _RequireModuleSupport(lua_State *L)
     if(luaL_dostring(_lua_state, _script)){
         // dostring error, lua cannot do this script
         const char *error = lua_tostring(_lua_state, -1);
-        NSLog(@"Failed to init lua_state, \nerror message:%s", error);
+        NSLog(@"LUA ERROR: failed to init lua_state {\n%s\n}", error);
     }
+    
+    _luaLock = [NSLock new];
 }
 
 - (MMLuaReturn *)runFunction:(NSString *)name params:(NSString *)firstParameter, ... NS_REQUIRES_NIL_TERMINATION
@@ -843,12 +842,12 @@ int _RequireModuleSupport(lua_State *L)
         va_end(args);
     }
     
-    return _CallLuaFunction(_lua_state, _script, name, parameters);
+    return _CallLuaFunction(_luaLock, _lua_state, _script, name, parameters);
 }
 
 - (MMLuaReturn *)callFunctionWithName:(NSString *)name parameters:(NSArray *)parameters
 {
-    return _CallLuaFunction(_lua_state, _script, name, parameters);
+    return _CallLuaFunction(_luaLock, _lua_state, _script, name, parameters);
 }
 
 - (MMLuaRunnerServiceControl *)requestService:(NSString *)service
@@ -860,13 +859,19 @@ int _RequireModuleSupport(lua_State *L)
     if (parameters) {
         json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:parameters options:0 error:nil] encoding:NSUTF8StringEncoding];
     }
-    _CallLuaFunction(_lua_state, _script, @"asyncservice_apply", @[service, callbackId, json]);
+    
+    MMLuaReturn *ret = _CallLuaFunction(_luaLock, _lua_state, _script, @"asyncservice_apply", @[service, callbackId, json]);
+    if (ret.error) {
+        if (completion) {
+            completion(ret);
+        }
+    }
     
     return ({
         MMLuaRunnerServiceControl *control = [MMLuaRunnerServiceControl new];
         
         [control setDidCancel:^{
-            _CallLuaFunction(_lua_state, _script, @"asyncservice_cancel", @[callbackId]);
+            _CallLuaFunction(_luaLock, _lua_state, _script, @"asyncservice_cancel", @[callbackId]);
         }];
         
         control;
@@ -883,8 +888,10 @@ int _RequireModuleSupport(lua_State *L)
     [[MMLuaAsyncServiceSupport sharedSupport] unregisterLocalService:service];
 }
 
-MMLuaReturn *_CallLuaFunction(lua_State *lua_state, char *scripts, NSString *luaFuncName, NSArray *params)
+MMLuaReturn *_CallLuaFunction(NSLock *lock, lua_State *lua_state, char *scripts, NSString *luaFuncName, NSArray *params)
 {
+    [lock lock];
+    
     int errorHandler = 0;
 #ifdef DEBUG
     lua_getglobal(lua_state, "debug");
@@ -916,6 +923,8 @@ MMLuaReturn *_CallLuaFunction(lua_State *lua_state, char *scripts, NSString *lua
 #ifdef DEBUG
         lua_pop(lua_state, 1);
 #endif
+        [lock unlock];
+        
         return [MMLuaReturn returnWithValue:value];
     } else {
         if (result == LUA_YIELD) {
@@ -931,7 +940,7 @@ MMLuaReturn *_CallLuaFunction(lua_State *lua_state, char *scripts, NSString *lua
         }
 #ifdef DEBUG
         errorMsg = [NSString stringWithFormat:@"%@\n%s", errorMsg, lua_tostring(lua_state, -1)];
-        NSLog(@"Error found by running function: <%@>, \nerror message:%@", luaFuncName, errorMsg);
+        NSLog(@"LUA ERROR: error found by calling function: <%@> {\n%@\n}", luaFuncName, errorMsg);
 #else
         errorMsg = [NSString stringWithFormat:@"%@\n", errorMsg];
 #endif
@@ -939,6 +948,8 @@ MMLuaReturn *_CallLuaFunction(lua_State *lua_state, char *scripts, NSString *lua
 #ifdef DEBUG
     lua_pop(lua_state, 1);
 #endif
+    [lock unlock];
+    
     return [MMLuaReturn returnWithError:errorMsg];
 }
 
