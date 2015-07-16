@@ -60,9 +60,7 @@ OBJC_EXPORT NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableSt
 
 - (MMLuaReturn *)callFunctionWithName:(NSString *)name parameters:(NSArray *)parameters;
 
-- (MMLuaRunnerServiceControl *)requestService:(NSString *)service
-                                   parameters:(NSDictionary *)parameters
-                                   completion:(void(^)(MMLuaReturn *ret))completion;
+- (MMLuaRunnerServiceControl *)requestService:(NSString *)service parameters:(NSDictionary *)parameters completion:(void(^)(MMLuaReturn *ret))completion;
 
 - (void)registerLocalService:(NSString *)service handlerBuilder:(id<MMLuaRunnerLocalServiceHandler>(^)())handlerBuilder;
 
