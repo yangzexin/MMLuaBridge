@@ -121,6 +121,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		3E13FF3D1D23FA17008CD54C /* MMLuaBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MMLuaBridge.h; sourceTree = "<group>"; };
 		3E4336D21B213A940051F063 /* libMMLuaBridge.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libMMLuaBridge.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E4336D51B213A940051F063 /* MMLuaRunner.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MMLuaRunner.h; sourceTree = "<group>"; };
 		3E4336D71B213A940051F063 /* MMLuaRunner.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MMLuaRunner.m; sourceTree = "<group>"; };
@@ -227,6 +228,7 @@
 				3E4338071B21423C0051F063 /* lua-5.1.5 */,
 				3E4336D51B213A940051F063 /* MMLuaRunner.h */,
 				3E4336D71B213A940051F063 /* MMLuaRunner.m */,
+				3E13FF3D1D23FA17008CD54C /* MMLuaBridge.h */,
 			);
 			path = MMLuaBridge;
 			sourceTree = "<group>";
