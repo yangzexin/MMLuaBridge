@@ -38,7 +38,7 @@ OBJC_EXPORT NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableSt
 
 @end
 
-@protocol MMLuaRunnerLocalServiceHandler <NSObject>
+@protocol MMLuaRunnerNativeServiceHandler <NSObject>
 
 - (void)handleWithRequest:(MMLuaRunnerServiceRequest *)request response:(MMLuaRunnerServiceResponse *)response;
 - (void)cancel;
@@ -53,6 +53,8 @@ OBJC_EXPORT NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableSt
 
 @interface MMLuaRunner : NSObject
 
+@property (nonatomic, assign, readonly) NSUInteger uid;
+
 + (void)setSharedModuleSupport:(id<MMLuaModuleSupport>)moduleSupport;
 + (id<MMLuaModuleSupport>)sharedModuleSupport;
 
@@ -60,9 +62,9 @@ OBJC_EXPORT NSString *MMRestoreLuaRecognizableString(NSString *luaRecognizableSt
 
 - (MMLuaReturn *)callFunctionWithName:(NSString *)name parameters:(NSArray *)parameters;
 
-- (MMLuaRunnerServiceControl *)requestService:(NSString *)service parameters:(NSDictionary *)parameters completion:(void(^)(MMLuaReturn *ret))completion;
+- (MMLuaRunnerServiceControl *)requestLuaService:(NSString *)service parameters:(NSDictionary *)parameters completion:(void(^)(MMLuaReturn *ret))completion;
 
-- (void)registerLocalService:(NSString *)service handlerBuilder:(id<MMLuaRunnerLocalServiceHandler>(^)())handlerBuilder;
+- (void)registerNativeService:(NSString *)service handlerBuilder:(id<MMLuaRunnerNativeServiceHandler>(^)(void))handlerBuilder;
 
 - (void)unregisterLocalService:(NSString *)service;
 
